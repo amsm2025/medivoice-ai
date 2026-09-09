@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: medivoice-ai
+    runtime: docker
+    plan: free
+    region: singapore
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
