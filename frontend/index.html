@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>MediVoice AI</title>
+  <style>
+    :root { font-family: Inter, system-ui, Arial, sans-serif; background:#f5f7fb; color:#13233a; }
+    * { box-sizing:border-box; }
+    body { margin:0; }
+    .shell { max-width:1180px; margin:0 auto; padding:28px 22px 50px; }
+    .hero { background:white; border:1px solid #e2e7ef; border-radius:22px; padding:30px; box-shadow:0 12px 36px rgba(16,24,40,.06); }
+    .top { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; }
+    .badge { display:inline-block; padding:7px 12px; border-radius:999px; background:#eaf2ff; color:#174ea6; font-size:13px; font-weight:800; }
+    .status { padding:7px 10px; border-radius:999px; background:#ecfdf3; color:#027a48; font-weight:800; font-size:12px; }
+    h1 { font-size:42px; margin:14px 0 8px; letter-spacing:-1px; }
+    .sub { color:#667085; max-width:780px; line-height:1.6; margin:0; }
+    .controls { display:grid; grid-template-columns:1fr auto auto; gap:10px; margin-top:24px; }
+    input { width:100%; padding:14px 16px; border:1px solid #cfd7e3; border-radius:12px; font-size:16px; outline:none; }
+    input:focus { border-color:#5b82c4; box-shadow:0 0 0 3px rgba(91,130,196,.12); }
+    button { padding:14px 18px; border:0; border-radius:12px; background:#172554; color:white; font-weight:800; cursor:pointer; }
+    button.secondary { background:#eef2f7; color:#26344d; }
+    button.voice { background:#0f766e; min-width:120px; }
+    button.voice.listening { background:#b42318; }
+    .grid { display:grid; grid-template-columns:1.1fr .9fr; gap:18px; margin-top:22px; }
+    .panel { border:1px solid #e5e9f0; border-radius:16px; padding:18px; background:#fbfcfe; min-height:210px; }
+    .panel h2 { font-size:15px; margin:0 0 12px; color:#344054; text-transform:uppercase; letter-spacing:.06em; }
+    .conversation { min-height:195px; max-height:320px; overflow:auto; }
+    .bubble { padding:12px 14px; border-radius:14px; margin:9px 0; line-height:1.45; max-width:92%; }
+    .you { margin-left:auto; background:#eaf2ff; }
+    .ai { background:white; border:1px solid #e2e7ef; }
+    .patient { display:none; }
+    .patient.show { display:block; }
+    .name { font-size:24px; font-weight:900; margin-bottom:4px; }
+    .meta { color:#667085; font-size:14px; margin-bottom:14px; }
+    .cards { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+    .card { background:white; border:1px solid #e2e7ef; padding:12px; border-radius:12px; }
+    .card b { display:block; font-size:12px; color:#667085; margin-bottom:6px; text-transform:uppercase; letter-spacing:.04em; }
+    ul { margin:6px 0 0 18px; padding:0; }
+    .audit { margin-top:18px; }
+    pre { white-space:pre-wrap; margin:0; background:#101828; color:#e4e7ec; padding:14px; border-radius:12px; min-height:140px; max-height:260px; overflow:auto; font-size:12px; }
+    .note { margin-top:16px; font-size:12px; color:#7b8492; }
+    .hint { margin-top:8px; color:#667085; font-size:13px; }
+    @media(max-width:800px){ .controls{grid-template-columns:1fr 1fr}.controls input{grid-column:1/-1}.grid{grid-template-columns:1fr}.cards{grid-template-columns:1fr} }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <div class="top"><div><span class="badge">Phase 0.2 • Conversational Voice Intelligence</span><h1>MediVoice AI</h1><p class="sub">Voice-enabled synthetic patient record retrieval with intent detection, DOB verification, RBAC scaffolding, FHIR-style resources, and structured audit events.</p></div><span class="status">● API READY</span></div>
+
+      <div class="controls">
+        <input id="query" value="Retrieve Juan Dela Cruz latest laboratory results" aria-label="Voice or text request" />
+        <button onclick="sendAgentQuery()">Ask MediVoice</button>
+        <button id="voiceBtn" class="voice" onclick="toggleVoice()">🎙 Voice</button>
+      </div>
+      <div class="hint">Try: “Retrieve Juan Dela Cruz latest laboratory results.” Then confirm DOB: “November 4 1978.”</div>
+
+      <div class="grid">
+        <div class="panel">
+          <h2>Conversation</h2>
+          <div id="conversation" class="conversation"><div class="bubble ai">MediVoice is ready. Use text or click Voice. Synthetic records only.</div></div>
+        </div>
+        <div id="patientPanel" class="panel patient">
+          <h2>Verified Patient Record</h2>
+          <div id="patientContent"></div>
+        </div>
+      </div>
+
+      <div class="audit panel">
+        <h2>Recent Audit Trail</h2>
+        <pre id="auditOutput">No events yet.</pre>
+      </div>
+      <div class="note">Synthetic demonstration data only. Not for clinical use. Browser voice uses the Web Speech API when supported.</div>
+    </section>
+  </div>
+
+<script>
+const API='http://localhost:8000';
+let challengeId=null;
+let recognition=null;
+let listening=false;
+let awaitingDob=false;
+
+function bubble(text, who='ai') {
+  const box=document.getElementById('conversation');
+  const div=document.createElement('div');
+  div.className=`bubble ${who}`;
+  div.textContent=text;
+  box.appendChild(div);
+  box.scrollTop=box.scrollHeight;
+}
+
+function speak(text){
+  if(!('speechSynthesis' in window)) return;
+  speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(text);
+  u.rate=0.97; u.pitch=1;
+  speechSynthesis.speak(u);
+}
+
+async function sendAgentQuery(textOverride=null, method='TEXT'){
+  const input=document.getElementById('query');
+  const text=(textOverride ?? input.value).trim();
+  if(!text) return;
+  bubble(text,'you');
+  try {
+    const res=await fetch(`${API}/agent/query`,{method:'POST',headers:{'Content-Type':'application/json','X-Input-Method':method},body:JSON.stringify({text,user_id:'clinician-demo',role:'clinician'})});
+    const data=await res.json();
+    if(!res.ok){ bubble(data.detail || 'Request failed.'); return; }
+    bubble(data.message);
+    speak(data.message);
+    if(data.status==='verification_required'){
+      challengeId=data.challenge_id;
+      awaitingDob=true;
+      input.value='November 4 1978';
+      input.placeholder='Confirm patient date of birth';
+    }
+    await refreshAudit();
+  } catch(e){ bubble('Could not reach the MediVoice API. Confirm Docker is running.'); }
+}
+
+async function verifyDob(spoken, method='VOICE'){
+  if(!challengeId) return;
+  bubble(spoken,'you');
+  try{
+    const res=await fetch(`${API}/agent/verify`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({challenge_id:challengeId,spoken_dob:spoken,user_id:'clinician-demo',role:'clinician'})});
+    const data=await res.json();
+    if(!res.ok){ bubble(data.detail || 'Verification failed.'); return; }
+    bubble(data.message);
+    speak(data.message);
+    if(data.status==='ok'){
+      awaitingDob=false; challengeId=null;
+      renderPatient(data.patient);
+      document.getElementById('query').value='Retrieve Juan Dela Cruz latest laboratory results';
+    }
+    await refreshAudit();
+  }catch(e){ bubble('Could not complete verification.'); }
+}
+
+function renderPatient(p){
+  const panel=document.getElementById('patientPanel');
+  panel.classList.add('show');
+  const labs=p.latest_labs.map(l=>`<li>${escapeHtml(l.test)} — ${escapeHtml(l.value)} <em>(${escapeHtml(l.status)})</em></li>`).join('');
+  document.getElementById('patientContent').innerHTML=`
+    <div class="name">${escapeHtml(p.first_name)} ${escapeHtml(p.last_name)}</div>
+    <div class="meta">MRN ${escapeHtml(p.mrn)} · DOB ${escapeHtml(p.date_of_birth)} · ${escapeHtml(p.sex)}</div>
+    <div class="cards">
+      <div class="card"><b>Allergies</b>${escapeHtml(p.allergies.join(', '))}</div>
+      <div class="card"><b>Diagnoses</b>${escapeHtml(p.diagnoses.join(', '))}</div>
+      <div class="card"><b>Medications</b>${escapeHtml(p.medications.join(', '))}</div>
+      <div class="card"><b>Latest Labs</b><ul>${labs}</ul></div>
+      <div class="card"><b>Next Appointment</b>${escapeHtml(p.next_appointment || 'None')}</div>
+    </div>`;
+}
+
+function escapeHtml(v){ return String(v).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
+
+async function refreshAudit(){
+  try{
+    const res=await fetch(`${API}/audit`,{headers:{'X-User-Role':'records'}});
+    const data=await res.json();
+    const recent=data.slice(-8).reverse().map(e=>`${e.timestamp}\n${e.user_id} | ${e.role} | ${e.method} | ${e.action} | ${e.result}\nPatient: ${e.patient_id || '-'} | Resource: ${e.resource || '-'}\n${e.detail}`).join('\n\n');
+    document.getElementById('auditOutput').textContent=recent || 'No events yet.';
+  }catch(e){}
+}
+
+function toggleVoice(){
+  const SpeechRecognition=window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SpeechRecognition){
+    bubble('Voice recognition is not supported in this browser. Chrome or Edge on localhost is recommended.');
+    return;
+  }
+  if(listening && recognition){ recognition.stop(); return; }
+  recognition=new SpeechRecognition();
+  recognition.lang='en-US'; recognition.interimResults=false; recognition.continuous=false;
+  const btn=document.getElementById('voiceBtn');
+  recognition.onstart=()=>{ listening=true; btn.classList.add('listening'); btn.textContent='■ Stop'; bubble(awaitingDob ? 'Listening for date of birth…' : 'Listening…'); };
+  recognition.onend=()=>{ listening=false; btn.classList.remove('listening'); btn.textContent='🎙 Voice'; };
+  recognition.onerror=(e)=>bubble(`Voice error: ${e.error}`);
+  recognition.onresult=(e)=>{
+    const transcript=e.results[0][0].transcript;
+    document.getElementById('query').value=transcript;
+    if(awaitingDob) verifyDob(transcript,'VOICE'); else sendAgentQuery(transcript,'VOICE');
+  };
+  recognition.start();
+}
+
+document.getElementById('query').addEventListener('keydown',e=>{
+  if(e.key==='Enter'){
+    if(awaitingDob) verifyDob(e.target.value,'TEXT'); else sendAgentQuery();
+  }
+});
+refreshAudit();
+</script>
+</body>
+</html>
