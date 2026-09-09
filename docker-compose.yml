@@ -1,0 +1,13 @@
+services:
+  api:
+    build: ./backend
+    container_name: medivoice-api
+    ports:
+      - "8000:8000"
+  web:
+    build: ./frontend
+    container_name: medivoice-web
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
